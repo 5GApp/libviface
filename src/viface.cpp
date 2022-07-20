@@ -825,9 +825,22 @@ bool VIfaceImpl::isUp() const
 
 vector<uint8_t> VIfaceImpl::receive()
 {
-    // Read packet into our buffer
-    int nread = read(this->queues.rx, &(this->pktbuff[0]), this->mtu);
-
+    // Read packet into our buffer for complete
+    int nread = 0;
+    int nrecv = 0;
+    while (1)
+    {
+        nread = read(this->queues.rx, &(this->pktbuff[nrecv]), this->mtu);
+        if (nread > 0)
+        {
+            nrecv += nread;
+        }
+        else 
+        {
+            break;
+        }
+    }
+    
     // Handle errors
     if (nread == -1) {
         // Nothing was read for this fd (non-blocking).
@@ -846,23 +859,28 @@ vector<uint8_t> VIfaceImpl::receive()
         // as ready" warns it, and so, it better to do this that to have
         // an application that frozes for no apparent reason.
         //
-        if (errno == EAGAIN) {
-            return vector<uint8_t>(0);
+        if (errno != EAGAIN) {
+            // Something bad happened
+            ostringstream what;
+            what << "--- IO error while reading from " << this->name;
+            what << "." << endl;
+            what << "    Error: " << strerror(errno);
+            what << " (" << errno << ")." << endl;
+            throw runtime_error(what.str());
         }
-
-        // Something bad happened
-        ostringstream what;
-        what << "--- IO error while reading from " << this->name;
-        what << "." << endl;
-        what << "    Error: " << strerror(errno);
-        what << " (" << errno << ")." << endl;
-        throw runtime_error(what.str());
     }
-
-    // Copy packet from buffer and return
-    vector<uint8_t> packet(nread);
-    packet.assign(&(this->pktbuff[0]), &(this->pktbuff[nread]));
-    return packet;
+   
+    if (nrecv > 0)
+    {
+        // Copy packet from buffer and return
+        vector<uint8_t> packet(nrecv);
+        packet.assign(&(this->pktbuff[0]), &(this->pktbuff[nrecv]));
+        return packet;
+    }
+    else 
+    {
+        return vector<uint8_t>(0);
+    }
 }
 
 void VIfaceImpl::send(vector<uint8_t>& packet) const
